@@ -4,6 +4,7 @@ import argparse
 import socket
 import sys
 import time
+import logging
 
 parser = argparse.ArgumentParser(description='Collect metrics from Redis and emit to StatsD')
 parser.add_argument('--period', dest='period', type=int, default=20, help='The period at which to collect and emit metrics')
@@ -14,6 +15,8 @@ parser.add_argument('--global-tags', dest='global_tags', type=str, help='Global 
 parser.add_argument('--no-tags', dest='tags', action='store_false', help='Disable tags for use with DogStatsD')
 
 args = parser.parse_args()
+
+logging.basicConfig(filename='/var/log/redis-statsd.log', filemode='a', format='%(levelname)s - %(message)s')
 
 GAUGES = {
     'blocked_clients': 'blocked_clients',
@@ -102,56 +105,60 @@ def linesplit(socket):
         yield buffer
 
 while True:
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    (redis_host, redis_port) = args.redis_host.split(':')
-    s.connect((redis_host, int(redis_port)))
-    s.send("INFO\n")
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        (redis_host, redis_port) = args.redis_host.split(':')
+        s.connect((redis_host, int(redis_port)))
+        s.send("INFO\n")
 
-    stats = {}
-    stats['keyspaces'] = {}
+        stats = {}
+        stats['keyspaces'] = {}
 
-    for line in linesplit(s):
-        if '# Clients' in line:
-            for l in line.split("\n"):
-                if ':keys' in l:
-                    (keyspace, kstats) = l.split(':')
-                    if keyspace not in stats['keyspaces']:
-                        stats['keyspaces'][keyspace] = {}
-                    for ks in kstats.split(','):
-                        (n, v) = ks.split('=')
-                        stats['keyspaces'][keyspace][n] = v.rstrip()
+        for line in linesplit(s):
+            if '# Clients' in line:
+                for l in line.split("\n"):
+                    if ':keys' in l:
+                        (keyspace, kstats) = l.split(':')
+                        if keyspace not in stats['keyspaces']:
+                            stats['keyspaces'][keyspace] = {}
+                        for ks in kstats.split(','):
+                            (n, v) = ks.split('=')
+                            stats['keyspaces'][keyspace][n] = v.rstrip()
 
-                elif ':' in l:
-                    (name, value) = l.split(':')
-                    stats[name] = value.rstrip()
+                    elif ':' in l:
+                        (name, value) = l.split(':')
+                        stats[name] = value.rstrip()
 
-    s.close()
+        s.close()
 
-    out_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        out_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    for g in GAUGES:
-        if g in stats:
-            send_metric('{}.{}'.format(args.prefix, g), 'g', float(stats[g]))
+        for g in GAUGES:
+            if g in stats:
+                send_metric('{}.{}'.format(args.prefix, g), 'g', float(stats[g]))
 
-    for c in COUNTERS:
-        if c in stats:
-            send_metric('{}.{}'.format(args.prefix, c), 'c', float(stats[c]))
+        for c in COUNTERS:
+            if c in stats:
+                send_metric('{}.{}'.format(args.prefix, c), 'c', float(stats[c]))
 
-    for ks in stats['keyspaces']:
-        for kc in KEYSPACE_COUNTERS:
-            if kc in stats['keyspaces'][ks]:
-                send_metric('{}.keyspace.{}'.format(
-                    args.prefix, kc), 'c',
-                float(stats['keyspaces'][ks][kc]), ['keyspace={}'.format(ks)]
-                )
+        for ks in stats['keyspaces']:
+            for kc in KEYSPACE_COUNTERS:
+                if kc in stats['keyspaces'][ks]:
+                    send_metric('{}.keyspace.{}'.format(
+                        args.prefix, kc), 'c',
+                    float(stats['keyspaces'][ks][kc]), ['keyspace={}'.format(ks)]
+                    )
 
-        for kg in KEYSPACE_GAUGES:
-            if kg in stats['keyspaces'][ks]:
-                send_metric('{}.keyspace.{}'.format(
-                    args.prefix, kg), 'g',
-                    float(stats['keyspaces'][ks][kg]), ['keyspace={}'.format(ks)]
-                )
-
-    out_sock.close()
-    time.sleep(10)
+            for kg in KEYSPACE_GAUGES:
+                if kg in stats['keyspaces'][ks]:
+                    send_metric('{}.keyspace.{}'.format(
+                        args.prefix, kg), 'g',
+                        float(stats['keyspaces'][ks][kg]), ['keyspace={}'.format(ks)]
+                    )
+        out_sock.close()
+        time.sleep(10)
+    except Exception, e:
+        logger.error('Error occured! Message: {} Args: {}'.format(e.message, e.args))
+        exit(1)
+            
 
