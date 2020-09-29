@@ -136,19 +136,17 @@ while True:
         stats['keyspaces'] = {}
 
         for line in linesplit(s):
-            if '# Clients' in line:
-                for l in line.split("\n"):
-                    if ':keys' in l:
-                        (keyspace, kstats) = l.split(':')
-                        if keyspace not in stats['keyspaces']:
-                            stats['keyspaces'][keyspace] = {}
-                        for ks in kstats.split(','):
-                            (n, v) = ks.split('=')
-                            stats['keyspaces'][keyspace][n] = v.rstrip()
-
-                    elif ':' in l:
-                        (name, value) = l.split(':')
-                        stats[name] = value.rstrip()
+            for l in line.split("\n"):
+                if ':keys' in l:
+                    (keyspace, kstats) = l.split(':')
+                    if keyspace not in stats['keyspaces']:
+                        stats['keyspaces'][keyspace] = {}
+                    for ks in kstats.split(','):
+                        (n, v) = ks.split('=')
+                        stats['keyspaces'][keyspace][n] = v.rstrip()
+                elif ':' in l:
+                    (name, value) = l.split(':')
+                    stats[name] = value.rstrip()
 
         s.close()
 
@@ -180,8 +178,6 @@ while True:
         collect_disk_space_usage()
         out_sock.close()
         time.sleep(10)
-    except Exception, e:
+    except Exception as e:
         logger.error('Error occured! Message: {} Args: {}'.format(e.message, e.args))
         exit(1)
-            
-
