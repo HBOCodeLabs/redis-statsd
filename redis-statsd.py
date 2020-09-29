@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import argparse
+import os
 import socket
 import sys
 import time
@@ -86,6 +87,26 @@ def send_metric(name, mtype, value, tags=None):
     (statsd_host, statsd_port) = args.statsd_host.split(':')
     out_sock.sendto(met, (statsd_host, int(statsd_port)))
 
+def collect_disk_space_usage():
+    # df --output works on Linux not on Mac
+    stream = os.popen('df --output=source,pcent')
+    # remove the command result header
+    header = stream.readline()
+    while True:
+        line = stream.readline()
+        # end of stream
+        if not line:
+            break
+        line = line.lstrip().rstrip()
+        # empty line
+        if not line:
+            continue
+        (disk,percent) = line.split()
+        percent= percent.replace('%','')
+        if (percent.isdigit()) == True:
+            send_metric('{}.{}.{}'.format(args.prefix, 'disk_space', disk), 'g', float(percent))
+    stream.close()
+
 def linesplit(socket):
     buffer = socket.recv(4096)
     buffering = True
@@ -155,6 +176,8 @@ while True:
                         args.prefix, kg), 'g',
                         float(stats['keyspaces'][ks][kg]), ['keyspace={}'.format(ks)]
                     )
+        
+        collect_disk_space_usage()
         out_sock.close()
         time.sleep(10)
     except Exception, e:
