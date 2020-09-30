@@ -18,6 +18,7 @@ parser.add_argument('--no-tags', dest='tags', action='store_false', help='Disabl
 args = parser.parse_args()
 
 logging.basicConfig(filename='/var/log/redis-statsd.log', filemode='a', format='%(levelname)s - %(message)s')
+logging.info('Sending metrics to statsd aggregator: {}'.format(args.statsd_host))
 
 GAUGES = {
     'blocked_clients': 'blocked_clients',
@@ -180,5 +181,5 @@ while True:
         out_sock.close()
         time.sleep(10)
     except Exception as e:
-        logger.error('Error occured! Message: {} Args: {}'.format(e.message, e.args))
+        logging.error('Error occured! Message: {} Args: {}'.format(e.message, e.args))
         exit(1)
